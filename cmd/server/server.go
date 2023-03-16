@@ -13,17 +13,20 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sync"
 )
 
 type AppCtx struct {
 	flags *cmd.AppFlags
 
+	mutex   sync.Mutex
 	process *os.Process
 }
 
 func DoServer(flags *cmd.AppFlags) {
 	ctx := &AppCtx{
 		flags: flags,
+		mutex: sync.Mutex{},
 	}
 
 	pskConfig := tls.PSKConfig{
@@ -69,11 +72,17 @@ func DoServer(flags *cmd.AppFlags) {
 func (ctx *AppCtx) runAndDebug(dlvArgs []string, f string, exeArgs []string) error {
 	sessionId := uuid.NewString()
 
-	if ctx.process != nil {
-		ctx.process.Signal(os.Kill)
-		ctx.process.Wait()
-		ctx.process = nil
-	}
+	func() {
+		// Kill old process
+		ctx.mutex.Lock()
+		defer ctx.mutex.Unlock()
+
+		if ctx.process != nil {
+			ctx.process.Signal(os.Kill)
+			ctx.process.Wait()
+			ctx.process = nil
+		}
+	}()
 
 	args := []string{"exec", "--headless", "--accept-multiclient", "--api-version=2", "--listen", *ctx.flags.DelveListenAddress}
 	args = append(args, dlvArgs...)
@@ -96,11 +105,15 @@ func (ctx *AppCtx) runAndDebug(dlvArgs []string, f string, exeArgs []string) err
 	ctx.process = command.Process
 
 	go func() {
-		err := command.Wait()
-		if err != nil {
-			log.Println("command error: ", err)
+		state, _ := command.Process.Wait()
+		ctx.mutex.Lock()
+		ctx.process = nil
+		ctx.mutex.Unlock()
+		exitCode := -1
+		if state != nil {
+			exitCode = state.ExitCode()
 		}
-		log.Printf("session[%s] exited\n", sessionId)
+		log.Printf("session[%s] exited. code=%d\n", sessionId, exitCode)
 		_ = os.Remove(f)
 	}()
 
