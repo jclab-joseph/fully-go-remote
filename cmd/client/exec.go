@@ -56,17 +56,23 @@ func DoExec(flags *cmd.AppFlags) {
 
 	resp, err := func() ([]byte, error) {
 		defer f.Close()
-		req, err := http.NewRequest("POST", *flags.Connect+"/api/upload-and-run", f)
+		req, err := http.NewRequest("POST", "https://"+*flags.Connect+"/api/upload-and-run", f)
 		if err != nil {
 			return nil, err
 		}
 
-		jsonRunArgs, err := json.Marshal(flags.RunArgs)
+		encodedRunArgs, err := stringArrayToJson(flags.RunArgs)
 		if err != nil {
 			return nil, err
 		}
+		req.Header.Set(protocol.HEADER_ARGS, encodedRunArgs)
 
-		req.Header.Set(protocol.HEADER_ARGS, base64.StdEncoding.EncodeToString(jsonRunArgs))
+		encodedDlvArgs, err := stringArrayToJson(flags.DlvArgs)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set(protocol.HEADER_DLV_ARGS, encodedDlvArgs)
+
 		res, err := client.Do(req)
 		if err != nil {
 			return nil, err
@@ -92,6 +98,15 @@ func DoExec(flags *cmd.AppFlags) {
 	}
 
 	log.Println(string(resp))
+}
+
+func stringArrayToJson(args []string) (string, error) {
+	bytes, err := json.Marshal(args)
+	if err != nil {
+		return "", err
+	}
+
+	return base64.StdEncoding.EncodeToString(bytes), nil
 }
 
 func streamToByteArray(stream io.Reader) ([]byte, error) {

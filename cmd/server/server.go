@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/google/uuid"
 	"github.com/jc-lab/fully-go-remote/internal/cmd"
 	"github.com/jc-lab/fully-go-remote/internal/protocol"
 	"github.com/jc-lab/go-tls-psk"
@@ -16,6 +17,8 @@ import (
 
 type AppCtx struct {
 	flags *cmd.AppFlags
+
+	process *os.Process
 }
 
 func DoServer(flags *cmd.AppFlags) {
@@ -63,27 +66,41 @@ func DoServer(flags *cmd.AppFlags) {
 	}
 }
 
-func (ctx *AppCtx) runAndDebug(f string, exeArgs []string) error {
-	args := []string{"exec", "--headless", "--accept-multiclient", "--api-version=2", "--listen", *ctx.flags.DelveListenAddress, f}
+func (ctx *AppCtx) runAndDebug(dlvArgs []string, f string, exeArgs []string) error {
+	sessionId := uuid.NewString()
+
+	if ctx.process != nil {
+		ctx.process.Signal(os.Kill)
+		ctx.process.Wait()
+		ctx.process = nil
+	}
+
+	args := []string{"exec", "--headless", "--accept-multiclient", "--api-version=2", "--listen", *ctx.flags.DelveListenAddress}
+	args = append(args, dlvArgs...)
+	args = append(args, f)
 	if len(exeArgs) > 0 {
+		args = append(args, "--")
 		args = append(args, exeArgs...)
 	}
 
-	cmd := exec.Command("dlv", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	command := exec.Command("dlv", args...)
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
 
-	err := cmd.Start()
+	log.Printf("session[%s] starting\n", sessionId)
+	err := command.Start()
 	if err != nil {
 		return err
 	}
 
+	ctx.process = command.Process
+
 	go func() {
-		err := cmd.Wait()
+		err := command.Wait()
 		if err != nil {
-			log.Println("cmd error: ", err)
+			log.Println("command error: ", err)
 		}
-		log.Println("session exited")
+		log.Printf("session[%s] exited\n", sessionId)
 		_ = os.Remove(f)
 	}()
 
@@ -106,6 +123,19 @@ func httpWriteErr(w http.ResponseWriter, err error) {
 	}); err != nil {
 		log.Println(err)
 	}
+}
+
+func parseBase64Args(input string) ([]string, error) {
+	decoded, err := base64.StdEncoding.DecodeString(input)
+	if err != nil {
+		return nil, err
+	}
+	var args []string
+	if err = json.Unmarshal(decoded, &args); err != nil {
+		return nil, err
+	}
+
+	return args, nil
 }
 
 func (ctx *AppCtx) uploadAndRun(w http.ResponseWriter, req *http.Request) {
@@ -132,24 +162,11 @@ func (ctx *AppCtx) uploadAndRun(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	var args []string
-	headerArgs := req.Header.Get(protocol.HEADER_ARGS)
-	if len(headerArgs) > 0 {
-		decoded, err := base64.StdEncoding.DecodeString(headerArgs)
-		if err != nil {
-			log.Println("base64 decode failed: ", err)
-			httpWriteErr(w, err)
-			return
-		}
-		if err = json.Unmarshal(decoded, &args); err != nil {
-			log.Println("arguments decode failed: ", err)
-			httpWriteErr(w, err)
-			return
-		}
-	}
+	dlvArgs, _ := parseBase64Args(req.Header.Get(protocol.HEADER_DLV_ARGS))
+	runArgs, _ := parseBase64Args(req.Header.Get(protocol.HEADER_ARGS))
 
 	os.Chmod(f.Name(), 0700)
-	err = ctx.runAndDebug(f.Name(), args)
+	err = ctx.runAndDebug(dlvArgs, f.Name(), runArgs)
 	if err != nil {
 		_ = os.Remove(f.Name())
 		log.Println("run failed: ", err)

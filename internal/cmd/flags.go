@@ -19,6 +19,9 @@ type AppFlags struct {
 	Connect *string
 	ExeFile string
 	RunArgs []string
+	DlvArgs []string
+
+	Continue *bool
 }
 
 func showUsage() {
@@ -34,6 +37,8 @@ func (ctx *AppFlags) ParseFlags() {
 
 	ctx.ServerListenAddress = flag.String("listen", "127.0.0.1:2344", "server listen address")
 	ctx.DelveListenAddress = flag.String("delve-listen", "127.0.0.1:2345", "delve listen address")
+
+	ctx.Continue = flag.Bool("continue", false, "dlv --continue")
 
 	if len(os.Args) < 2 {
 		flag.Usage()
@@ -72,6 +77,10 @@ func (ctx *AppFlags) ParseFlags() {
 
 		if flag.NArg() >= argIndex {
 			ctx.RunArgs = flag.Args()[argIndex:]
+		}
+
+		if *ctx.Continue {
+			ctx.DlvArgs = append(ctx.DlvArgs, "--continue")
 		}
 	} else {
 		log.Println("invalid command:", command)

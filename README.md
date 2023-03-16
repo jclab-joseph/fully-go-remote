@@ -2,6 +2,20 @@
 
 Upload-and-Run at once!
 
+# Usage
+
+## Server
+
+```
+$ fgor server -listen "0.0.0.0:2344" -delve-listen "0.0.0.0:2345" -token "abcd"
+```
+
+## Client
+
+```
+$ fgor --connect 127.0.0.1:2344 exec target.exe hello world
+```
+
 # Security
 
 TLS-PSK
