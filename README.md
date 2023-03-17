@@ -4,16 +4,30 @@ Upload-and-Run at once!
 
 # Usage
 
+```text
+Usage of fgor:
+  -connect string
+        http address (e.g. 127.0.0.1:2344)
+  -continue
+        Add --continue flag to remote dlv.
+  -delve-listen string
+        delve listen address (default "127.0.0.1:2345")
+  -listen string
+        server listen address (default "127.0.0.1:2344")
+  -token string
+        authentication token
+```
+
 ## Server
 
 ```
-$ fgor server -listen "0.0.0.0:2344" -delve-listen "0.0.0.0:2345" -token "abcd"
+$ fgor server --listen "0.0.0.0:2344" --delve-listen "0.0.0.0:2345" --token "abcd"
 ```
 
 ## Client
 
 ```
-$ fgor --connect 127.0.0.1:2344 exec target.exe hello world
+$ fgor --connect 127.0.0.1:2344 --token "abcd" exec target.exe hello world
 ```
 
 # Security
