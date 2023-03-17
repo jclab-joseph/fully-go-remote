@@ -18,6 +18,10 @@ Usage of fgor:
         authentication token
 ```
 
+## IDE
+
+- [GoLand](./docs/GoLand.md)
+
 ## Server
 
 ```
