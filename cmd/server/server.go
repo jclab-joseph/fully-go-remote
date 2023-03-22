@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/jc-lab/fully-go-remote/internal/cmd"
 	"github.com/jc-lab/fully-go-remote/internal/protocol"
@@ -13,6 +14,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
+	"strings"
 	"sync"
 )
 
@@ -157,7 +160,26 @@ func (ctx *AppCtx) uploadAndRun(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	f, err := os.CreateTemp("", "fgr*.exe")
+	var err error
+
+	programName := req.Header.Get(protocol.HEADER_NAME)
+	var f *os.File
+	tempFile := ""
+	if programName != "" {
+		for i := 0; i < 10; i++ {
+			programName = strings.TrimSuffix(programName, ".exe")
+			tempName := fmt.Sprintf("fgr-%s-%d.exe", programName, i)
+			tempFile = path.Join(os.TempDir(), tempName)
+			f, err = os.Create(tempFile)
+			if err == nil {
+				break
+			}
+		}
+	}
+	if f == nil {
+		f, err = os.CreateTemp("", "fgr*.exe")
+	}
+	log.Print("save to ", f.Name())
 	if err != nil {
 		log.Println("uploadAndRun failed: ", err)
 		httpWriteErr(w, err)

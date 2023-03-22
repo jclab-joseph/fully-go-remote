@@ -6,6 +6,9 @@ Upload-and-Run at once!
 
 ```text
 Usage of fgor:
+  fgor server [...args] : run as server
+  fgor exec   [...args] : run program in remote
+
   -connect string
         http address (e.g. 127.0.0.1:2344)
   -continue

@@ -61,6 +61,8 @@ func DoExec(flags *cmd.AppFlags) {
 			return nil, err
 		}
 
+		req.Header.Set(protocol.HEADER_NAME, flags.ExeFile)
+
 		encodedRunArgs, err := stringArrayToJson(flags.RunArgs)
 		if err != nil {
 			return nil, err
