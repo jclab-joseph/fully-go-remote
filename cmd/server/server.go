@@ -237,7 +237,7 @@ func (ctx *AppCtx) uploadAndRun(w http.ResponseWriter, req *http.Request) {
 	if extName == "" {
 		extName = "exe"
 	} else {
-		programName = strings.TrimSuffix(extName, "."+extName)
+		programName = strings.TrimSuffix(programName, "."+extName)
 	}
 
 	if programName != "" {
