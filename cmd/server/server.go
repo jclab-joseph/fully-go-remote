@@ -235,15 +235,14 @@ func (ctx *AppCtx) uploadAndRun(w http.ResponseWriter, req *http.Request) {
 
 	extName := path.Ext(programName)
 	if extName == "" {
-		extName = "exe"
+		extName = ".exe"
 	} else {
-		programName = strings.TrimSuffix(programName, "."+extName)
+		programName = strings.TrimSuffix(programName, extName)
 	}
 
 	if programName != "" {
 		for i := 0; i < 10; i++ {
-			programName = strings.TrimSuffix(programName, "."+extName)
-			tempName := fmt.Sprintf("fgr-%s-%d.%s", programName, i, extName)
+			tempName := fmt.Sprintf("fgr-%s-%d%s", programName, i, extName)
 			tempFile = path.Join(os.TempDir(), tempName)
 			if f, err = os.Create(tempFile); err != nil {
 				log.Println(err)
