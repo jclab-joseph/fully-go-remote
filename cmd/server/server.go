@@ -19,17 +19,22 @@ import (
 	"sync"
 )
 
+type RunCtx struct {
+	process *os.Process
+}
+
 type AppCtx struct {
 	flags *cmd.AppFlags
 
-	mutex   sync.Mutex
-	process *os.Process
+	mutex sync.Mutex
+	runs  map[string]*RunCtx
 }
 
 func DoServer(flags *cmd.AppFlags) {
 	ctx := &AppCtx{
 		flags: flags,
 		mutex: sync.Mutex{},
+		runs:  make(map[string]*RunCtx),
 	}
 
 	pskConfig := tls.PSKConfig{
@@ -72,20 +77,32 @@ func DoServer(flags *cmd.AppFlags) {
 	}
 }
 
-func (ctx *AppCtx) runAndDebug(dlvArgs []string, f string, exeArgs []string) error {
+func (runCtx *RunCtx) KillIfRunning() {
+	if runCtx.process != nil {
+		runCtx.process.Signal(os.Kill)
+		runCtx.process.Wait()
+		runCtx.process = nil
+	}
+}
+
+func (ctx *AppCtx) prepareRunCtx(name string) *RunCtx {
+	runCtx := ctx.runs[name]
+	if runCtx == nil {
+		runCtx = &RunCtx{}
+		ctx.runs[name] = runCtx
+	} else {
+		runCtx.KillIfRunning()
+	}
+	return runCtx
+}
+
+func (ctx *AppCtx) runGoAndDebug(dlvArgs []string, f string, exeArgs []string) error {
 	sessionId := uuid.NewString()
 
-	func() {
-		// Kill old process
-		ctx.mutex.Lock()
-		defer ctx.mutex.Unlock()
-
-		if ctx.process != nil {
-			ctx.process.Signal(os.Kill)
-			ctx.process.Wait()
-			ctx.process = nil
-		}
-	}()
+	// Kill old process
+	ctx.mutex.Lock()
+	defer ctx.mutex.Unlock()
+	runCtx := ctx.prepareRunCtx("go")
 
 	args := []string{"exec", "--headless", "--accept-multiclient", "--api-version=2", "--listen", *ctx.flags.DelveListenAddress}
 	args = append(args, dlvArgs...)
@@ -98,6 +115,7 @@ func (ctx *AppCtx) runAndDebug(dlvArgs []string, f string, exeArgs []string) err
 	command := exec.Command("dlv", args...)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
+	command.Dir = *ctx.flags.WorkingDirectory
 
 	log.Printf("session[%s] starting\n", sessionId)
 	err := command.Start()
@@ -105,12 +123,56 @@ func (ctx *AppCtx) runAndDebug(dlvArgs []string, f string, exeArgs []string) err
 		return err
 	}
 
-	ctx.process = command.Process
+	runCtx.process = command.Process
 
 	go func() {
 		state, _ := command.Process.Wait()
 		ctx.mutex.Lock()
-		ctx.process = nil
+		runCtx.process = nil
+		ctx.mutex.Unlock()
+		exitCode := -1
+		if state != nil {
+			exitCode = state.ExitCode()
+		}
+		log.Printf("session[%s] exited. code=%d\n", sessionId, exitCode)
+		_ = os.Remove(f)
+	}()
+
+	return nil
+}
+
+func (ctx *AppCtx) runJavaAndDebug(jvmArgs []string, f string, exeArgs []string) error {
+	sessionId := uuid.NewString()
+
+	// Kill old process
+	ctx.mutex.Lock()
+	defer ctx.mutex.Unlock()
+	runCtx := ctx.prepareRunCtx("java")
+
+	args := []string{}
+	args = append(args, jvmArgs...)
+	args = append(args, "-jar", f)
+	if len(exeArgs) > 0 {
+		args = append(args, exeArgs...)
+	}
+
+	command := exec.Command("java", args...)
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	command.Dir = *ctx.flags.WorkingDirectory
+
+	log.Printf("session[%s] starting\n", sessionId)
+	err := command.Start()
+	if err != nil {
+		return err
+	}
+
+	runCtx.process = command.Process
+
+	go func() {
+		state, _ := command.Process.Wait()
+		ctx.mutex.Lock()
+		runCtx.process = nil
 		ctx.mutex.Unlock()
 		exitCode := -1
 		if state != nil {
@@ -162,22 +224,37 @@ func (ctx *AppCtx) uploadAndRun(w http.ResponseWriter, req *http.Request) {
 
 	var err error
 
+	programType := req.Header.Get(protocol.HEADER_TYPE)
+	if programType == "" {
+		programType = "go"
+	}
+
 	programName := req.Header.Get(protocol.HEADER_NAME)
 	var f *os.File
 	tempFile := ""
+
+	extName := path.Ext(programName)
+	if extName == "" {
+		extName = "exe"
+	} else {
+		programName = strings.TrimSuffix(extName, "."+extName)
+	}
+
 	if programName != "" {
 		for i := 0; i < 10; i++ {
-			programName = strings.TrimSuffix(programName, ".exe")
-			tempName := fmt.Sprintf("fgr-%s-%d.exe", programName, i)
+			programName = strings.TrimSuffix(programName, "."+extName)
+			tempName := fmt.Sprintf("fgr-%s-%d.%s", programName, i, extName)
 			tempFile = path.Join(os.TempDir(), tempName)
-			f, err = os.Create(tempFile)
+			if f, err = os.Create(tempFile); err != nil {
+				log.Println(err)
+			}
 			if err == nil {
 				break
 			}
 		}
 	}
 	if f == nil {
-		f, err = os.CreateTemp("", "fgr*.exe")
+		f, err = os.CreateTemp("", "fgr*."+extName)
 	}
 	log.Print("save to ", f.Name())
 	if err != nil {
@@ -197,11 +274,20 @@ func (ctx *AppCtx) uploadAndRun(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	dlvArgs, _ := parseBase64Args(req.Header.Get(protocol.HEADER_DLV_ARGS))
 	runArgs, _ := parseBase64Args(req.Header.Get(protocol.HEADER_ARGS))
 
 	os.Chmod(f.Name(), 0700)
-	err = ctx.runAndDebug(dlvArgs, f.Name(), runArgs)
+	if programType == "go" {
+		dlvArgs, _ := parseBase64Args(req.Header.Get(protocol.HEADER_DLV_ARGS))
+		err = ctx.runGoAndDebug(dlvArgs, f.Name(), runArgs)
+	} else if programType == "java" {
+		jvmArgs, _ := parseBase64Args(req.Header.Get(protocol.HEADER_JVM_ARGS))
+		fullyJvmArgs := []string{"-agentlib:" + *ctx.flags.JavaAgentLib}
+		fullyJvmArgs = append(fullyJvmArgs, jvmArgs...)
+		err = ctx.runJavaAndDebug(fullyJvmArgs, f.Name(), runArgs)
+	} else {
+		err = errors.New("unknown type: " + programType)
+	}
 	if err != nil {
 		_ = os.Remove(f.Name())
 		log.Println("run failed: ", err)

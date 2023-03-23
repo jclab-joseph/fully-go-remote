@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 )
 
 func DoExec(flags *cmd.AppFlags) {
@@ -54,6 +55,8 @@ func DoExec(flags *cmd.AppFlags) {
 		return
 	}
 
+	exeFileName := path.Base(flags.ExeFile)
+
 	resp, err := func() ([]byte, error) {
 		defer f.Close()
 		req, err := http.NewRequest("POST", "https://"+*flags.Connect+"/api/upload-and-run", f)
@@ -61,7 +64,8 @@ func DoExec(flags *cmd.AppFlags) {
 			return nil, err
 		}
 
-		req.Header.Set(protocol.HEADER_NAME, flags.ExeFile)
+		req.Header.Set(protocol.HEADER_NAME, exeFileName)
+		req.Header.Set(protocol.HEADER_TYPE, *flags.Type)
 
 		encodedRunArgs, err := stringArrayToJson(flags.RunArgs)
 		if err != nil {
@@ -74,6 +78,12 @@ func DoExec(flags *cmd.AppFlags) {
 			return nil, err
 		}
 		req.Header.Set(protocol.HEADER_DLV_ARGS, encodedDlvArgs)
+
+		encodedJvmArgs, err := stringArrayToJson(flags.JvmArgs)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set(protocol.HEADER_JVM_ARGS, encodedJvmArgs)
 
 		res, err := client.Do(req)
 		if err != nil {

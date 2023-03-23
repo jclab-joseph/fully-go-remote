@@ -14,12 +14,16 @@ type AppFlags struct {
 	// Server
 	ServerListenAddress *string
 	DelveListenAddress  *string
+	JavaAgentLib        *string
+	WorkingDirectory    *string
 
 	// Client
+	Type    *string
 	Connect *string
 	ExeFile string
 	RunArgs []string
 	DlvArgs []string
+	JvmArgs []string
 
 	Continue *bool
 }
@@ -32,11 +36,16 @@ func showUsage() {
 func (ctx *AppFlags) ParseFlags() {
 	argIndex := 1
 
+	cwd, _ := os.Getwd()
+
 	ctx.Token = flag.String("token", "", "authentication token")
 	ctx.Connect = flag.String("connect", "", "http address")
+	ctx.Type = flag.String("type", "go", "program type (go/java)")
 
 	ctx.ServerListenAddress = flag.String("listen", "127.0.0.1:2344", "server listen address")
 	ctx.DelveListenAddress = flag.String("delve-listen", "127.0.0.1:2345", "delve listen address")
+	ctx.JavaAgentLib = flag.String("java-agentlib", "jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005", "-agentlib option")
+	ctx.WorkingDirectory = flag.String("working", cwd, "working directory")
 
 	ctx.Continue = flag.Bool("continue", false, "dlv --continue")
 

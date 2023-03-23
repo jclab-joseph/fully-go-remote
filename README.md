@@ -8,7 +8,12 @@ Upload-and-Run at once!
 Usage of fgor:
   fgor server [...args] : run as server
   fgor exec   [...args] : run program in remote
-
+  
+  -type string
+        Available:
+        go: delve (default)
+        java: agent
+  -java-agentlib string (default: jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005)
   -connect string
         http address (e.g. 127.0.0.1:2344)
   -continue
