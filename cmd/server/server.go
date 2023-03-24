@@ -20,7 +20,8 @@ import (
 )
 
 type RunCtx struct {
-	process *os.Process
+	process   *os.Process
+	cleanupCh chan bool
 }
 
 type AppCtx struct {
@@ -78,31 +79,43 @@ func DoServer(flags *cmd.AppFlags) {
 }
 
 func (runCtx *RunCtx) KillIfRunning() {
-	if runCtx.process != nil {
-		runCtx.process.Signal(os.Kill)
-		runCtx.process.Wait()
-		runCtx.process = nil
+	oldProcess := runCtx.process
+	runCtx.process = nil
+	if oldProcess != nil {
+		oldProcess.Signal(os.Kill)
+		_ = <-runCtx.cleanupCh
 	}
 }
 
 func (ctx *AppCtx) prepareRunCtx(name string) *RunCtx {
+	ctx.mutex.Lock()
+	defer ctx.mutex.Unlock()
 	runCtx := ctx.runs[name]
 	if runCtx == nil {
 		runCtx = &RunCtx{}
 		ctx.runs[name] = runCtx
 	} else {
 		runCtx.KillIfRunning()
+		close(runCtx.cleanupCh)
 	}
+	runCtx.cleanupCh = make(chan bool)
 	return runCtx
 }
 
-func (ctx *AppCtx) runGoAndDebug(dlvArgs []string, f string, exeArgs []string) error {
-	sessionId := uuid.NewString()
+func (ctx *AppCtx) waitProcessAndDelete(runCtx *RunCtx, sessionId string, f string) {
+	state, _ := runCtx.process.Wait()
+	runCtx.process = nil
+	exitCode := -1
+	if state != nil {
+		exitCode = state.ExitCode()
+	}
+	log.Printf("session[%s] exited. code=%d\n", sessionId, exitCode)
+	_ = os.Remove(f)
+	runCtx.cleanupCh <- true
+}
 
-	// Kill old process
-	ctx.mutex.Lock()
-	defer ctx.mutex.Unlock()
-	runCtx := ctx.prepareRunCtx("go")
+func (ctx *AppCtx) runGoAndDebug(runCtx *RunCtx, dlvArgs []string, f string, exeArgs []string) error {
+	sessionId := uuid.NewString()
 
 	args := []string{"exec", "--headless", "--accept-multiclient", "--api-version=2", "--listen", *ctx.flags.DelveListenAddress}
 	args = append(args, dlvArgs...)
@@ -125,29 +138,13 @@ func (ctx *AppCtx) runGoAndDebug(dlvArgs []string, f string, exeArgs []string) e
 
 	runCtx.process = command.Process
 
-	go func() {
-		state, _ := command.Process.Wait()
-		ctx.mutex.Lock()
-		runCtx.process = nil
-		ctx.mutex.Unlock()
-		exitCode := -1
-		if state != nil {
-			exitCode = state.ExitCode()
-		}
-		log.Printf("session[%s] exited. code=%d\n", sessionId, exitCode)
-		_ = os.Remove(f)
-	}()
+	go ctx.waitProcessAndDelete(runCtx, sessionId, f)
 
 	return nil
 }
 
-func (ctx *AppCtx) runJavaAndDebug(jvmArgs []string, f string, exeArgs []string) error {
+func (ctx *AppCtx) runJavaAndDebug(runCtx *RunCtx, jvmArgs []string, f string, exeArgs []string) error {
 	sessionId := uuid.NewString()
-
-	// Kill old process
-	ctx.mutex.Lock()
-	defer ctx.mutex.Unlock()
-	runCtx := ctx.prepareRunCtx("java")
 
 	args := []string{}
 	args = append(args, jvmArgs...)
@@ -169,18 +166,7 @@ func (ctx *AppCtx) runJavaAndDebug(jvmArgs []string, f string, exeArgs []string)
 
 	runCtx.process = command.Process
 
-	go func() {
-		state, _ := command.Process.Wait()
-		ctx.mutex.Lock()
-		runCtx.process = nil
-		ctx.mutex.Unlock()
-		exitCode := -1
-		if state != nil {
-			exitCode = state.ExitCode()
-		}
-		log.Printf("session[%s] exited. code=%d\n", sessionId, exitCode)
-		_ = os.Remove(f)
-	}()
+	go ctx.waitProcessAndDelete(runCtx, sessionId, f)
 
 	return nil
 }
@@ -228,6 +214,9 @@ func (ctx *AppCtx) uploadAndRun(w http.ResponseWriter, req *http.Request) {
 	if programType == "" {
 		programType = "go"
 	}
+
+	// Kill and delete old file
+	runCtx := ctx.prepareRunCtx(programType)
 
 	programName := req.Header.Get(protocol.HEADER_NAME)
 	var f *os.File
@@ -278,12 +267,12 @@ func (ctx *AppCtx) uploadAndRun(w http.ResponseWriter, req *http.Request) {
 	os.Chmod(f.Name(), 0700)
 	if programType == "go" {
 		dlvArgs, _ := parseBase64Args(req.Header.Get(protocol.HEADER_DLV_ARGS))
-		err = ctx.runGoAndDebug(dlvArgs, f.Name(), runArgs)
+		err = ctx.runGoAndDebug(runCtx, dlvArgs, f.Name(), runArgs)
 	} else if programType == "java" {
 		jvmArgs, _ := parseBase64Args(req.Header.Get(protocol.HEADER_JVM_ARGS))
 		fullyJvmArgs := []string{"-agentlib:" + *ctx.flags.JavaAgentLib}
 		fullyJvmArgs = append(fullyJvmArgs, jvmArgs...)
-		err = ctx.runJavaAndDebug(fullyJvmArgs, f.Name(), runArgs)
+		err = ctx.runJavaAndDebug(runCtx, fullyJvmArgs, f.Name(), runArgs)
 	} else {
 		err = errors.New("unknown type: " + programType)
 	}
