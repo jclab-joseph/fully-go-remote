@@ -98,7 +98,7 @@ func (ctx *AppCtx) prepareRunCtx(name string) *RunCtx {
 		runCtx.KillIfRunning()
 		close(runCtx.cleanupCh)
 	}
-	runCtx.cleanupCh = make(chan bool)
+	runCtx.cleanupCh = make(chan bool, 1)
 	return runCtx
 }
 
