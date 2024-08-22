@@ -22,6 +22,8 @@ Usage of fgor:
         delve listen address (default "127.0.0.1:2345")
   -listen string
         server listen address (default "127.0.0.1:2344")
+  -no-debug
+        without dlv
   -token string
         authentication token
 ```

@@ -115,8 +115,6 @@ func (ctx *AppCtx) waitProcessAndDelete(runCtx *RunCtx, sessionId string, f stri
 }
 
 func (ctx *AppCtx) runGoAndDebug(runCtx *RunCtx, dlvArgs []string, f string, exeArgs []string) error {
-	sessionId := uuid.NewString()
-
 	args := []string{"exec", "--headless", "--accept-multiclient", "--api-version=2", "--listen", *ctx.flags.DelveListenAddress}
 	args = append(args, dlvArgs...)
 	args = append(args, f)
@@ -125,7 +123,13 @@ func (ctx *AppCtx) runGoAndDebug(runCtx *RunCtx, dlvArgs []string, f string, exe
 		args = append(args, exeArgs...)
 	}
 
-	command := exec.Command("dlv", args...)
+	return ctx.runGoFromArgs(runCtx, f, "dlv", args)
+}
+
+func (ctx *AppCtx) runGoFromArgs(runCtx *RunCtx, f string, program string, args []string) error {
+	sessionId := uuid.NewString()
+
+	command := exec.Command(program, args...)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	command.Dir = *ctx.flags.WorkingDirectory
@@ -202,6 +206,13 @@ func parseBase64Args(input string) ([]string, error) {
 	return args, nil
 }
 
+func parseBoolArg(input string) bool {
+	if input == "" {
+		return false
+	}
+	return input == "true"
+}
+
 func (ctx *AppCtx) uploadAndRun(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		httpWriteErr(w, errors.New("invalid method: "+req.Method))
@@ -266,8 +277,13 @@ func (ctx *AppCtx) uploadAndRun(w http.ResponseWriter, req *http.Request) {
 
 	os.Chmod(f.Name(), 0700)
 	if programType == "go" {
-		dlvArgs, _ := parseBase64Args(req.Header.Get(protocol.HEADER_DLV_ARGS))
-		err = ctx.runGoAndDebug(runCtx, dlvArgs, f.Name(), runArgs)
+		noDebug := parseBoolArg(req.Header.Get(protocol.HEADER_NO_DEBUG))
+		if noDebug {
+			err = ctx.runGoFromArgs(runCtx, f.Name(), f.Name(), append([]string{f.Name()}, runArgs...))
+		} else {
+			dlvArgs, _ := parseBase64Args(req.Header.Get(protocol.HEADER_DLV_ARGS))
+			err = ctx.runGoAndDebug(runCtx, dlvArgs, f.Name(), runArgs)
+		}
 	} else if programType == "java" {
 		jvmArgs, _ := parseBase64Args(req.Header.Get(protocol.HEADER_JVM_ARGS))
 		fullyJvmArgs := []string{"-agentlib:" + *ctx.flags.JavaAgentLib}

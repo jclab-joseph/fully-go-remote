@@ -85,6 +85,10 @@ func DoExec(flags *cmd.AppFlags) {
 		}
 		req.Header.Set(protocol.HEADER_JVM_ARGS, encodedJvmArgs)
 
+		if *flags.NoDebug {
+			req.Header.Set(protocol.HEADER_NO_DEBUG, "true")
+		}
+
 		res, err := client.Do(req)
 		if err != nil {
 			return nil, err

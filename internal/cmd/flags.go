@@ -26,6 +26,7 @@ type AppFlags struct {
 	JvmArgs []string
 
 	Continue *bool
+	NoDebug  *bool
 }
 
 func showUsage() {
@@ -48,6 +49,7 @@ func (ctx *AppFlags) ParseFlags() {
 	ctx.WorkingDirectory = flag.String("working", cwd, "working directory")
 
 	ctx.Continue = flag.Bool("continue", false, "dlv --continue")
+	ctx.NoDebug = flag.Bool("no-debug", false, "without dlv")
 
 	if len(os.Args) < 2 {
 		flag.Usage()
