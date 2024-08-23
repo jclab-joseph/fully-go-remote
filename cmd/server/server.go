@@ -130,6 +130,7 @@ func (ctx *AppCtx) runGoFromArgs(runCtx *RunCtx, f string, program string, args 
 	sessionId := uuid.NewString()
 
 	command := exec.Command(program, args...)
+	command.Stdin = os.Stdin
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	command.Dir = *ctx.flags.WorkingDirectory
