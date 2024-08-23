@@ -279,7 +279,7 @@ func (ctx *AppCtx) uploadAndRun(w http.ResponseWriter, req *http.Request) {
 	if programType == "go" {
 		noDebug := parseBoolArg(req.Header.Get(protocol.HEADER_NO_DEBUG))
 		if noDebug {
-			err = ctx.runGoFromArgs(runCtx, f.Name(), f.Name(), append([]string{f.Name()}, runArgs...))
+			err = ctx.runGoFromArgs(runCtx, f.Name(), f.Name(), runArgs)
 		} else {
 			dlvArgs, _ := parseBase64Args(req.Header.Get(protocol.HEADER_DLV_ARGS))
 			err = ctx.runGoAndDebug(runCtx, dlvArgs, f.Name(), runArgs)
